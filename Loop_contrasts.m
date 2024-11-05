@@ -1,15 +1,29 @@
-function Loop_contrasts(root_pth, onsets_path, base_table)
+function Loop_contrasts(root_pth, onsets_path, intable)
     % root_path: path to the collection of SPM files 
     % Onsets_path: path to the dataset with onsets, e.g.
     % /mnt/Data/fMRI_data/Design_matrix/
     %
-    % base_table: loaded structure with generated tables e.g.
-    % contrasts = load('contrast_table.mat');
-    % base_table = conrasts.contrast
+    % intable: path to xml table with defined contrasts
 
     subject_list = dir(root_pth); % List with path to BIDS *and* '.', '..'
-    subject_list = regexpi({subject_list.name},'sub-COGNAP[0-9]{3}','match'); 
+    subject_list = regexpi({subject_list.name},'^sub-COGNAP[0-9]{3}','match'); 
     subject_list = [subject_list{:}]; % Keep only non-empty entries 
+
+    %sheets_list = {'T0', 'T1', 'T1_T0'};
+    if exist('sheetnames', 'builtin')
+      sheets_list = sheetnames(intable);
+    else
+      [~, sheets_list] = xlsfinfo(intable);
+    end
+    % sheets_list = {'T0'};
+    % intable = 'contrasts_sessionbysession.xlsx';
+    base_table = struct();
+    for is = 1:numel(sheets_list)
+      base_table(is).T = readtable(intable, ...
+                                   'Sheet', sheets_list{is}, ...
+                                   'readrownames', true);
+      base_table(is).name = sheets_list{is};
+    end
 
     % This should load template batch
     template_job;
@@ -28,73 +42,95 @@ function Loop_contrasts(root_pth, onsets_path, base_table)
             continue;
         end
         load(SPM_file);
-        exp_cols = numel(SPM.xX.name);
 
+        spm_names = SPM.xX.name;
+        tab_names = {};
+        for i = 1:numel(spm_names)
+          tab_names{end + 1} = gen_colname(spm_names{i});
+        end
 
         matlabbatch = template_batch;
         matlabbatch{1}.spm.stats.con.spmmat = {SPM_file};
         matlabbatch{1}.spm.stats.con.consess = {};
 
         table_names = fieldnames(base_table);
-        for i = 1:numel(table_names)
-            fprintf('Generating table for %s\n', table_names{i})
-            local_contrast = cleanup_table(subject_list{isub},...
-                                           base_table.(table_names{i}), onsets_path);
-            if size(local_contrast, 2) ~= exp_cols
-              warning('Expecting %d columns, got %d', ...
-                      exp_cols, size(local_contrast, 2));
+        for i = 1:numel(base_table)
+            fprintf('Generating table for %s\n', base_table(i).name);
+            row_names = base_table(i).T.Properties.RowNames;
+            cols = base_table(i).T.Properties.VariableNames;
+            local_contrast = array2table(zeros(numel(row_names),...
+                                               numel(tab_names)...
+                                               )...
+                                         );
+            local_contrast.Properties.VariableNames = tab_names;
+            local_contrast.Properties.RowNames = row_names;
+
+            for icol = 1:numel(cols)
+              col_name = cols{icol};
+              if any(ismember(local_contrast.Properties.VariableNames, col_name))
+                if nnz(local_contrast.(col_name))
+                  error('Trying to update non-empty column %s (%s)',...
+                        col_name, num2xlcol(icol));
+                end
+                local_contrast.(col_name) = base_table(i).T.(col_name);
+              else
+                error('Trying to update missing column %s (%s)',...
+                      col_name, num2xlcol(icol));
+              end
             end
+            fprintf('Updated %d columns\n', numel(cols))
+
             for row = 1:size(local_contrast, 1)
               % how to get row name, e.g. T0-T1 SS5
               a.tcon.name = sprintf('%s_%s', ...
                                     local_contrast.Properties.RowNames{row},...
-                                    table_names{i});
+                                    base_table(i).name);
               % how to get coresponding weights
               a.tcon.weights = table2array(local_contrast(row, :));
               a.tcon.sessrep = 'none';
               matlabbatch{1}.spm.stats.con.consess{end + 1} = a;
             end
-            save(['contrast_', sub, '_', table_names{i}], 'local_contrast');
+            save(['contrast_', sub, '_', base_table(i).name], 'local_contrast');
         end
         save(['batch_', sub], 'matlabbatch');   
      
     end
 end
 
+function out = gen_colname(spm_name)
+  res = regexp(spm_name, ' ', 'split');
 
-function local_contrast = cleanup_table(sub_id, base_table, onsets_path)
-  % sub_id: id of the subject
-  % default table (without any dropped columns)
-  % onsest_path: path to the directory containing onsets of all subject
-  local_contrast = base_table;
+  tok = regexp(res{1}, 'Sn\(([0-9]+)\)', 'tokens');
+  ses = ['T', num2str(str2double(tok{1}{1}) - 1)];
 
-  % Loop over sessions
-  for s = 0:1
-    session = sprintf('T%d', s);
-    onset_file = sprintf('%s_miniblock_onset_norest_pmod_ses-%s.mat', ...
-                         sub_id, session);
-    onset_file = fullfile(onsets_path, ['ses-', session], onset_file);
-    onsets = load(onset_file);
+  base = regexp(res{2}, '*', 'split');
+  base = base{1};
 
-    for icol = 1:numel(onsets.names)
-      % Checking if column has data
-      if numel(onsets.durations{icol}) == 1 && onsets.durations{icol} == 0    
-          % No data in column
-          col_name = onsets.names{icol};
-          fprintf('%s: %s: %s contains no data\n', sub_id, session, col_name);
-          % Generating column to remove
-          col_name = sprintf('%s_%s_mod', col_name, session);
-          % Checking if column to remove exists
-          if any(ismember(local_contrast.Properties.VariableNames, col_name))
-              % Removing corresponding modified column
-              fprintf('%s: %s: Removing column %s\n', sub_id, session, col_name);
-              local_contrast.(col_name) = [];
-          end
-      end
-    end
+  res = regexp(base, 'xRT');
+  if isempty(res)
+    mod = '';
+  else
+    mod = '_mod';
+    base = base(1:res(1) - 1);
   end
 
-  fprintf('%s: Remaining columns: %d\n', sub_id,...
-          size(local_contrast.Properties.VariableNames, 2));
+  out = [base mod '_' ses];
 
-end 
+end
+
+function res = num2xlcol(val)
+  letters = 26;
+  offset = 65;
+
+  res = '';
+  if val == 0
+    res = 'A';
+    return
+  end
+
+  while val > 0
+    letter = mod(val, letters) 
+    val = (val - letter) / 26;
+    res = [char(offset + letter) res];
+  end
+end
