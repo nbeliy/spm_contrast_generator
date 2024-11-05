@@ -100,8 +100,7 @@ end
 function out = gen_colname(spm_name)
   res = regexp(spm_name, ' ', 'split');
 
-  tok = regexp(res{1}, 'Sn\(([0-9]+)\)', 'tokens');
-  ses = ['T', num2str(str2double(tok{1}{1}) - 1)];
+  ses = generate_session_name(res{1});
 
   base = regexp(res{2}, '*', 'split');
   base = base{1};
@@ -129,7 +128,7 @@ function res = num2xlcol(val)
   end
 
   while val > 0
-    letter = mod(val, letters) 
+    letter = mod(val, letters); 
     val = (val - letter) / 26;
     res = [char(offset + letter) res];
   end
