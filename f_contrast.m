@@ -41,7 +41,8 @@ function tab = f_contrast(spm_names, sessions, include, exclude)
     end
     matrix(i, i) = 1;
   end
-
+  empty = any(matrix, 2);
   tab = array2table(matrix, 'VariableNames', colnames, 'RowNames', colnames);
+  tab(~empty, :) = [];
 
 end
