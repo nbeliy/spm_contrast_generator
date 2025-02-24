@@ -1,4 +1,4 @@
-function Loop_contrasts(root_pth, onsets_path, intable)
+function Loop_contrasts(root_pth, intable)
     % root_path: path to the collection of SPM files 
     % Onsets_path: path to the dataset with onsets, e.g.
     % /mnt/Data/fMRI_data/Design_matrix/
@@ -9,14 +9,12 @@ function Loop_contrasts(root_pth, onsets_path, intable)
     subject_list = regexpi({subject_list.name},'^sub-COGNAP[0-9]{3}','match'); 
     subject_list = [subject_list{:}]; % Keep only non-empty entries 
 
-    %sheets_list = {'T0', 'T1', 'T1_T0'};
     if exist('sheetnames', 'builtin')
       sheets_list = sheetnames(intable);
     else
       [~, sheets_list] = xlsfinfo(intable);
     end
-    % sheets_list = {'T0'};
-    % intable = 'contrasts_sessionbysession.xlsx';
+
     base_table = struct();
     for is = 1:numel(sheets_list)
       base_table(is).T = readtable(intable, ...
@@ -30,6 +28,11 @@ function Loop_contrasts(root_pth, onsets_path, intable)
 
     for isub = 1:size(subject_list,2)
         sub = subject_list{isub};
+        sub_pth = fullfile(root_pth, subject_list{isub});
+        if ~exist(sub_pth, 'dir')
+          continue
+        end
+
         fprintf('##################################################\n');
         fprintf('Subject %s (%d/%d)\n', subject_list{isub}, isub, size(subject_list,2));
         fprintf('##################################################\n');
