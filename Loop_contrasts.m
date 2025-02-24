@@ -59,30 +59,9 @@ function Loop_contrasts(root_pth, intable)
         table_names = fieldnames(base_table);
         for i = 1:numel(base_table)
             fprintf('Generating table for %s\n', base_table(i).name);
-            row_names = base_table(i).T.Properties.RowNames;
-            cols = base_table(i).T.Properties.VariableNames;
-            local_contrast = array2table(zeros(numel(row_names),...
-                                               numel(tab_names)...
-                                               )...
-                                         );
-            local_contrast.Properties.VariableNames = tab_names;
-            local_contrast.Properties.RowNames = row_names;
+            local_contrast = generate_contrast(tab_names, base_table(i).T);
 
-            for icol = 1:numel(cols)
-              col_name = cols{icol};
-              if any(ismember(local_contrast.Properties.VariableNames, col_name))
-                if nnz(local_contrast.(col_name))
-                  error('Trying to update non-empty column %s (%s)',...
-                        col_name, num2xlcol(icol));
-                end
-                local_contrast.(col_name) = base_table(i).T.(col_name);
-              else
-                error('Trying to update missing column %s (%s)',...
-                      col_name, num2xlcol(icol));
-              end
-            end
-            fprintf('Updated %d columns\n', numel(cols))
-
+            % Filling batch with contrast rows
             for row = 1:size(local_contrast, 1)
               % how to get row name, e.g. T0-T1 SS5
               a.tcon.name = sprintf('%s_%s', ...
